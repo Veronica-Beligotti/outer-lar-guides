@@ -14,10 +14,11 @@ def main():
     with open(config_file, "r") as f:
         config_dict = yaml.safe_load(f)
     sipm_efficiency = float(config_dict.get("sipm", {}).get("efficiency", 1.0))
+    BBT_concentration = float(config_dict.get("light_guide", {}).get("BBT_concentration", 0.2))
     
     # Defining materials and surfaces
     reg = pg4.geant4.Registry()
-    define_materials(reg)
+    define_materials(reg, BBT_concentration)
     surfaces = define_surfaces(reg, sipm_efficiency)
 
     # Setup World

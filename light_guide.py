@@ -12,7 +12,7 @@ class LightGuideConfig:
     geometry: str = "rectangle"
     n_sides: int = 4
     wls: str = "PMMA"
-    BBT_concentration: float | None = 0.0
+    BBT_concentration: float | None = 0.2
 
 @dataclass
 class WLSConfig:
