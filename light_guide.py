@@ -160,11 +160,11 @@ class RectangularLightGuide(BaseLightGuide):
     def construct_reflector(self):
         lg_x, lg_y, lg_z = self.lg.dimensions_in_mm
         self.reflector_short_s = pg4.geant4.solid.Box("reflector_short_s", lg_z, lg_y, self.reflector_thickness_in_mm, lunit="mm", registry=self.registry)
-        self.reflector_short_l = pg4.geant4.LogicalVolume(self.reflector_short_s, self.registry.materialDict["PMMA"], "reflector_short_l", registry=self.registry)
+        self.reflector_short_l = pg4.geant4.LogicalVolume(self.reflector_short_s, "G4_POLYETHYLENE", "reflector_short_l", registry=self.registry)
         self.reflector_short_l.pygeom_color_rgba = (0.92, 0.92, 0.92, 1)
         
         self.reflector_long_s  = pg4.geant4.solid.Box("reflector_long_s", lg_x, lg_y, self.reflector_thickness_in_mm, lunit="mm", registry=self.registry)
-        self.reflector_long_l = pg4.geant4.LogicalVolume(self.reflector_long_s, self.registry.materialDict["PMMA"], "reflector_long_l", registry=self.registry)
+        self.reflector_long_l = pg4.geant4.LogicalVolume(self.reflector_long_s, "G4_POLYETHYLENE", "reflector_long_l", registry=self.registry)
         self.reflector_long_l.pygeom_color_rgba = (0.92, 0.92, 0.92, 1)
         
     def place_detectors(self):
@@ -284,7 +284,7 @@ class PolygonalLightGuide(BaseLightGuide):
     def construct_reflector(self):
         lg_z = self.lg.dimensions_in_mm[2]
         self.reflector_s = pg4.geant4.solid.Box("reflector_s", self.side_length, lg_z, self.reflector_thickness_in_mm, lunit="mm", registry=self.registry)
-        self.reflector_l = pg4.geant4.LogicalVolume(self.reflector_s, self.registry.materialDict["PMMA"], "reflector_l", registry=self.registry)
+        self.reflector_l = pg4.geant4.LogicalVolume(self.reflector_s, "G4_POLYETHYLENE", "reflector_l", registry=self.registry)
         self.reflector_l.pygeom_color_rgba = (0.92, 0.92, 0.92, 1)
 
     def place_detectors(self):
