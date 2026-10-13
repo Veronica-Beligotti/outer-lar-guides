@@ -124,6 +124,28 @@ def define_PMMA_BBT(reg: pg4.geant4.Registry, BBT_concentration: float = 0.2):
     pmma_bbt.addConstProperty("WLSTIMECONSTANT", 0.5, "ns")
 
 
+def define_Epoxy(reg: pg4.geant4.Registry):
+    """Define the epoxy used for the SiPM windows (MyMaterials::Epoxy() in the Geant4 project).
+
+    Only RINDEX is defined (constant 1.5 over 1-10 eV): no ABSLENGTH, as in the original.
+    """
+
+    H = reg.materialDict["hydrogen"]
+    C = reg.materialDict["carbon"]
+    O = reg.materialDict["oxygen"]
+
+    # Same composition as in MyMaterials.cc: C 5/15, O 2/15, H 8/15, 1.19 g/cm3
+    # (note: the .cc passes these ratios to AddElement(), i.e. as *mass fractions*).
+    epoxy = pg4.geant4.MaterialCompound("Epoxy", 1.19, 3, reg)
+    epoxy.add_element_massfraction(C, 5.0 / 15.0)
+    epoxy.add_element_massfraction(O, 2.0 / 15.0)
+    epoxy.add_element_massfraction(H, 8.0 / 15.0)
+
+    epoxy_energy = np.array([1.0, 2.034, 4.136, 10.0])  # eV
+    epoxy_rindex = np.array([1.5, 1.5, 1.5, 1.5])
+    epoxy.addVecProperty("RINDEX", epoxy_energy, epoxy_rindex)
+
+
 def define_pTP(reg: pg4.geant4.Registry):
     """Define p-Terphenyl (pTP) material and its optical properties."""
 
@@ -220,6 +242,7 @@ def define_materials(reg: pg4.geant4.Registry, BBT_concentration):
     define_lar(reg)
     define_PMMA(reg)
     define_PMMA_BBT(reg, BBT_concentration)
+    define_Epoxy(reg)
     define_pTP(reg)
     define_PEN(reg)
     define_TPB(reg)

@@ -11,7 +11,9 @@ sipm:
   # options (string): left_right, top_bottom, all
   placement: left_right
   number: 12
-  gap_in_mm: 0.01
+  gap_in_mm: 0.
+  window_material: Epoxy   
+  window_dimensions_in_mm: [6.0, 6.0, 0.3]
   efficiency: 0.5
 
 external_wls:
@@ -24,4 +26,4 @@ external_wls:
 
 reflector: 
   placement: True
-  # gap_in_mm: 0
+  # gap_in_mm: 0.0
