@@ -127,10 +127,6 @@ class BaseLightGuide:
 
         # The hole cut in the reflectors must let both the SiPM and its window through.
         sipm_x, sipm_y, sipm_z = self.sipm.dimensions_in_mm
-        #opening = (max(sipm_x, win_x), max(sipm_y, win_y), max(sipm_z, win_z))
-        #if opening != (sipm_x, sipm_y, sipm_z):
-            #self.opening_s = pg4.geant4.solid.Box("sipm_opening_s", *opening, registry=self.registry, lunit="mm")
-
         opening = (1.5 * sipm_x, 1.5 * sipm_y, sipm_z,)
 
         self.opening_s = pg4.geant4.solid.Box("sipm_opening_s", *opening, registry=self.registry, lunit="mm")
