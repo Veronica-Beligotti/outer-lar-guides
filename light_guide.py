@@ -39,8 +39,9 @@ class SiPMConfig:
 @dataclass
 class ReflectorConfig:
     """Dataclass storing geometrical properties of the reflector."""
-    placement: bool = False
+    lateral_placement: str = "none"
     gap_in_mm: float | None = 0.0
+    back_reflector: bool = False
 
 
 class BaseLightGuide:
@@ -64,6 +65,14 @@ class BaseLightGuide:
 
         if self.reflector.gap_in_mm is None: 
             self.reflector.gap_in_mm = self.sipm.gap_in_mm
+
+        if self.reflector.lateral_placement not in {
+            "left_right", "top_bottom", "all", "none"
+        }:      
+            raise ValueError(
+                f"Unknown reflector placement: {self.reflector.lateral_placement!r}. "
+                "Choose from 'left_right', 'top_bottom', 'all', 'none'."
+            )
 
         self.gap_from_panel_in_mm = 50.0
         self.reflector_thickness_in_mm = 0.150
@@ -107,6 +116,7 @@ class BaseLightGuide:
     def construct_reflector(self): raise NotImplementedError
     def place_detectors(self): raise NotImplementedError
     def place_reflector(self): raise NotImplementedError
+    def place_back_reflector(self): raise NotImplementedError
     def place_container_in_parent(self, parent_lv): raise NotImplementedError
 
     def construct_sipm_window(self):
@@ -170,8 +180,11 @@ class BaseLightGuide:
 
         self.place_detectors()
 
-        if self.reflector.placement:
+        if self.reflector.lateral_placement != "none":
             self.place_reflector()
+
+        if self.reflector.back_reflector:
+            self.place_back_reflector()
 
         if self.wls.material is not None:
             self.construct_external_wls()
@@ -187,7 +200,7 @@ class RectangularLightGuide(BaseLightGuide):
         sipm_z = self.sipm_stack_thickness_in_mm   # SiPM + window
 
         x = lg_x + 2 * self.sipm.gap_in_mm + sipm_z * 2
-        if self.reflector.placement:
+        if self.reflector.lateral_placement != "none":
             x += self.reflector_thickness_in_mm + self.reflector.gap_in_mm
         
         substrate_thickness = self.wls.substrate_thickness_in_mm if self.wls.substrate else 0.0
@@ -195,6 +208,9 @@ class RectangularLightGuide(BaseLightGuide):
 
         y_lg = max(lg_y, self.window_height_in_mm)   # a wide window must fit in the container too
         y = y_lg + total_wls_thickness * 2 + self.wls.gap_in_mm * 2 if self.wls.material else y_lg
+        if self.reflector.back_reflector:
+            back_y = (y_lg + 2 * (self.reflector_thickness_in_mm + self.reflector.gap_in_mm))
+            y = max(y, back_y)
         
         z = lg_z + 2 * self.sipm.gap_in_mm + sipm_z * 2
         if self.wls.material:
@@ -276,33 +292,66 @@ class RectangularLightGuide(BaseLightGuide):
 
         for side in range(self.lg.n_sides):
             is_vertical = side % 2 == 0
-            place_sipm = self.sipm.placement == "all" or (self.sipm.placement == "left_right" and is_vertical) or (self.sipm.placement == "top_bottom" and not is_vertical)
 
+            # Determine independently where the reflector is placed.
+            reflector_on_side = (
+                self.reflector.lateral_placement == "all"
+                or (self.reflector.lateral_placement == "left_right" and is_vertical)
+                or (self.reflector.lateral_placement == "top_bottom" and not is_vertical)
+            )
+            if not reflector_on_side:
+                continue
+
+            # Determine whether SiPMs are present on this side.
+            sipm_on_side = (
+                self.sipm.placement == "all"
+                or (self.sipm.placement == "left_right" and is_vertical)
+                or (self.sipm.placement == "top_bottom" and not is_vertical)
+            )
             side_angle = 2 * pi * side / self.lg.n_sides
-            rotation = [0, side_angle + pi/2, 0]
+            rotation = [0, side_angle + pi / 2, 0]
             cx = (lg_x / 2 + self.reflector_thickness_in_mm / 2 + self.reflector.gap_in_mm) * cos(side_angle)
             cz = (lg_z / 2 + self.reflector_thickness_in_mm / 2 + self.reflector.gap_in_mm) * sin(side_angle)
 
-            current_reflector_s = self.reflector_short_s if is_vertical else self.reflector_long_s
+            current_reflector_s = ( self.reflector_short_s if is_vertical else self.reflector_long_s)
 
-            if not place_sipm:
-                current_reflector_l = self.reflector_short_l if is_vertical else self.reflector_long_l
+            # If there are no SiPMs on this side, place a full reflector.
+            if not sipm_on_side:
+                current_reflector_l = (self.reflector_short_l if is_vertical else self.reflector_long_l)
                 pg4.geant4.PhysicalVolume(rotation, [cx, 0, cz], current_reflector_l, f"reflector_{side}", self.container_l, registry=self.registry)
                 pg4.geant4.SkinSurface(f"reflector_{side}_surface", current_reflector_l, self.surfaces["vikuiti"], self.registry)
                 continue
 
+            # If SiPMs are present, subtract their openings.
             length = lg_z if is_vertical else lg_x
             distance_per_sipm = length / sipm_per_side
-            
+
             for j in range(sipm_per_side):
-                offset = (j - (sipm_per_side - 1) / 2) * distance_per_sipm
+                offset = ( (j - (sipm_per_side - 1) / 2) * distance_per_sipm)
                 current_reflector_s = pg4.geant4.solid.Subtraction(f"reflector_s_{side}_{j}", current_reflector_s, self.opening_s, [[0, 0, 0], [offset, 0, 0]], registry=self.registry)
 
             current_reflector_l = pg4.geant4.LogicalVolume(current_reflector_s, self.registry.materialDict["PMMA"], f"subtr_reflector_{side}", registry=self.registry)
             current_reflector_l.pygeom_color_rgba = (0.92, 0.92, 0.92, 1)
             pg4.geant4.PhysicalVolume(rotation, [cx, 0, cz], current_reflector_l, f"subtr_reflector_{side}", self.container_l, registry=self.registry)
             pg4.geant4.SkinSurface(f"subtr_reflector_{side}_surface", current_reflector_l, self.surfaces["vikuiti"], self.registry)
-        
+
+    def place_back_reflector(self):
+        lg_x, lg_y, lg_z = self.lg.dimensions_in_mm
+        thickness = self.reflector_thickness_in_mm
+        gap = self.reflector.gap_in_mm
+
+        back_reflector_s = pg4.geant4.solid.Box("back_reflector_s", lg_x, thickness, lg_z, registry=self.registry, lunit="mm")
+
+        back_reflector_l = pg4.geant4.LogicalVolume(back_reflector_s, "G4_POLYETHYLENE", "back_reflector_l", registry=self.registry)
+        back_reflector_l.pygeom_color_rgba = (0.92, 0.92, 0.92, 1)
+
+        # The external WLS is on +y; place the back reflector on -y.
+        y_back = -lg_y / 2 - gap - thickness / 2
+
+        pg4.geant4.PhysicalVolume([0, 0, 0], [0, y_back, 0], back_reflector_l, "back_reflector", self.container_l, registry=self.registry)
+
+        pg4.geant4.SkinSurface("back_reflector_surface", back_reflector_l, self.surfaces["vikuiti"], self.registry)
+
     def place_container_in_parent(self, parent_lv):
         lg_y = self.lg.dimensions_in_mm[1]
         panel_y = self.registry.solidDict["panel_s"].pY
@@ -322,7 +371,7 @@ class PolygonalLightGuide(BaseLightGuide):
     def construct_light_guide_container(self):
         lg_z = self.lg.dimensions_in_mm[2]
         d = self.sipm_stack_thickness_in_mm * 2 + self.sipm.gap_in_mm   # (SiPM + window) * 2
-        if self.reflector.placement:
+        if self.reflector.lateral_placement != "none":
             d += self.reflector_thickness_in_mm * 2 + self.reflector.gap_in_mm
             
         r_ext = self.apothem + d
@@ -332,6 +381,9 @@ class PolygonalLightGuide(BaseLightGuide):
 
         z_lg = max(lg_z, self.window_height_in_mm) / 2   # a wide window must fit in the container too
         z_ext = z_lg + total_wls_thickness * 2 + self.wls.gap_in_mm if self.wls.material else z_lg
+        if self.reflector.back_reflector:
+            back_z = (lg_z / 2 + self.reflector.gap_in_mm + self.reflector_thickness_in_mm)
+            z_ext = max(z_ext, back_z)
         
         container_s = pg4.geant4.solid.Polyhedra("lightguide_container_s", 0, 2 * pi, self.lg.n_sides, 2, [-z_ext, z_ext], [0.0, 0.0], [r_ext, r_ext], registry=self.registry, lunit="mm")
         self.container_l = pg4.geant4.LogicalVolume(container_s, self.registry.materialDict["lAr"], "lightguide_container_l", registry=self.registry)
@@ -399,18 +451,32 @@ class PolygonalLightGuide(BaseLightGuide):
         sipm_per_side = (self.sipm.number * 2) // self.lg.n_sides if self.sipm.placement != "all" else self.sipm.number // self.lg.n_sides
 
         for side in range(self.lg.n_sides):
-            place_sipm = self.sipm.placement == "all" or (self.sipm.placement == "left_right" and side % 2 == 0) or (self.sipm.placement == "top_bottom" and side % 2 != 0)
+            reflector_on_side = (
+                self.reflector.lateral_placement == "all"
+                or (self.reflector.lateral_placement == "left_right" and side % 2 == 0)
+                or (self.reflector.lateral_placement == "top_bottom"and side % 2 != 0)
+            )
+            if not reflector_on_side:
+                continue
+
+            sipm_on_side = (
+                self.sipm.placement == "all"
+                or (self.sipm.placement == "left_right" and side % 2 == 0)
+                or (self.sipm.placement == "top_bottom" and side % 2 != 0)
+            )
+
             side_angle = 2 * pi * side / self.lg.n_sides + pi / self.lg.n_sides
             
             cx = (self.apothem + self.reflector_thickness_in_mm/2 + self.reflector.gap_in_mm) * cos(side_angle)
             cy = (self.apothem + self.reflector_thickness_in_mm/2 + self.reflector.gap_in_mm) * sin(side_angle)
             rotation = [pi/2, side_angle + pi/2, 0]
 
-            if not place_sipm:
+            if not sipm_on_side:
                 pg4.geant4.PhysicalVolume(rotation, [cx, cy, 0], self.reflector_l, f"reflector_{side}", self.container_l, registry=self.registry)
                 pg4.geant4.SkinSurface(f"reflector_{side}_surface", self.reflector_l, self.surfaces["vikuiti"], self.registry)
                 continue
-                
+
+            # SiPMs present: subtract their openings.
             current_reflector_s = self.reflector_s
             for j in range(sipm_per_side): 
                 offset = (j - (sipm_per_side - 1)/2) * (self.side_length / sipm_per_side) if sipm_per_side > 1 else 0
@@ -420,6 +486,23 @@ class PolygonalLightGuide(BaseLightGuide):
             current_reflector_l.pygeom_color_rgba = (0.92, 0.92, 0.92, 1)
             pg4.geant4.PhysicalVolume(rotation, [cx, cy, 0], current_reflector_l, f"subtr_reflector_{side}", self.container_l, registry=self.registry)
             pg4.geant4.SkinSurface(f"subtr_reflector_{side}_surface", current_reflector_l, self.surfaces["vikuiti"], self.registry)
+
+    def place_back_reflector(self):
+        lg_z = self.lg.dimensions_in_mm[2]
+        thickness = self.reflector_thickness_in_mm
+        gap = self.reflector.gap_in_mm
+
+        back_reflector_s = pg4.geant4.solid.Polyhedra("back_reflector_s", 0, 2 * pi, self.lg.n_sides, 2, [-thickness / 2, thickness / 2], [0.0, 0.0], [self.apothem, self.apothem], registry=self.registry, lunit="mm")
+
+        back_reflector_l = pg4.geant4.LogicalVolume( back_reflector_s,"G4_POLYETHYLENE","back_reflector_l",registry=self.registry)
+        back_reflector_l.pygeom_color_rgba = (0.92, 0.92, 0.92, 1)
+
+        # The external WLS is on +z; place the back reflector on -z.
+        z_back = -lg_z / 2 - gap - thickness / 2
+
+        pg4.geant4.PhysicalVolume([0, 0, 0], [0, 0, z_back], back_reflector_l, "back_reflector", self.container_l, registry=self.registry)
+
+        pg4.geant4.SkinSurface("back_reflector_surface", back_reflector_l, self.surfaces["vikuiti"], self.registry)
 
     def place_container_in_parent(self, parent_lv):
         lg_z = self.lg.dimensions_in_mm[2]
